@@ -1,11 +1,11 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name='bambushot',
     version='0.1.0',
     description='Fire prints on Bambu Lab printers without re-uploading every time.',
     author='',
-    py_modules=['bambushot'],
+    packages=find_packages(),
     python_requires='>=3.10',
     install_requires=['paho-mqtt>=2.0.0'],
 )
