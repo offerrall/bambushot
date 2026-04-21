@@ -24,7 +24,6 @@ def _resolve_plate(file_path: str) -> int:
 
 
 class BambuPrinter:
-    _META_SUFFIX = '.plate'
     _LINE_RE = re.compile(
         r'^([d-])[rwx-]{9}\s+\d+\s+\S+\s+\S+\s+(\d+)\s+\w+\s+\d+\s+[\d:]+\s+(.+)$'
     )
@@ -65,7 +64,7 @@ class BambuPrinter:
             if not m:
                 continue
             type_char, size_str, name = m.groups()
-            if name in ('.', '..') or name.endswith(self._META_SUFFIX):
+            if name in ('.', '..'):
                 continue
             files.append((name, int(size_str), type_char == 'd'))
         return files
@@ -73,31 +72,11 @@ class BambuPrinter:
     def upload_gcode(self, local_file: str, timeout: int = 300) -> None:
         if not os.path.isfile(local_file):
             raise RuntimeError(f"file not found: {local_file}")
-        plate = _resolve_plate(local_file)
         remote_name = os.path.basename(local_file)
         self._curl(['-T', local_file, f'ftps://{self._ip}:990/{remote_name}'], timeout)
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as f:
-            f.write(str(plate))
-            meta_local = f.name
-        try:
-            self._curl(['-T', meta_local, f'ftps://{self._ip}:990/{remote_name}{self._META_SUFFIX}'], timeout)
-        finally:
-            os.remove(meta_local)
 
     def delete_file(self, name: str) -> None:
         self._curl([f'ftps://{self._ip}:990/', '-Q', f'DELE {name}'])
-        try:
-            self._curl([f'ftps://{self._ip}:990/', '-Q', f'DELE {name}{self._META_SUFFIX}'])
-        except RuntimeError:
-            pass
-
-    def _read_plate_remote(self, name: str) -> int:
-        try:
-            content = self._curl([f'ftps://{self._ip}:990/{name}{self._META_SUFFIX}']).strip()
-            return int(content)
-        except (RuntimeError, ValueError):
-            raise RuntimeError(f"{name} has no plate metadata — upload it first.")
 
     def _publish(self, payload: dict) -> None:
         ctx = ssl.create_default_context()
@@ -128,8 +107,9 @@ class BambuPrinter:
         if not published:
             raise RuntimeError("MQTT publish timed out")
 
-    def print_file(self, name: str, use_ams: bool = False) -> None:
-        plate = self._read_plate_remote(name)
+    def print_file(self, local_file: str, use_ams: bool = False) -> None:
+        plate = _resolve_plate(local_file)
+        name = os.path.basename(local_file)
         self._publish({
             "print": {
                 "sequence_id": "0",
@@ -158,4 +138,4 @@ class BambuPrinter:
         cached = {f[0] for f in self.list_files()}
         if name not in cached:
             self.upload_gcode(local_file)
-        self.print_file(name, use_ams=use_ams)
+        self.print_file(local_file, use_ams=use_ams)
